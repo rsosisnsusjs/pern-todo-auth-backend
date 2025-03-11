@@ -7,7 +7,7 @@ const pool = require('../db');
 router.get('/', authorize, async (req,res) => {
     try {
         const user = await pool.query(
-            'SELECT u.user_name, t.todo_id, t.description FROM users AS u LEFT JOIN todos AS t ON u.user_id = t.user_id WHERE u.user_id = $1',
+            'SELECT u.user_name, t.todo_id, t.description, t.due_date FROM users AS u LEFT JOIN todos AS t ON u.user_id = t.user_id WHERE u.user_id = $1',
             [req.user.id]
         );
 
@@ -22,10 +22,10 @@ router.get('/', authorize, async (req,res) => {
 
 router.post('/todos', authorize, async (req,res) => {
     try {
-        const { description } = req.body;
+        const { description, due_date } = req.body;
         const newTodo = await pool.query(
-            'INSERT INTO todos (user_id, description) VALUES($1, $2) RETURNING *',
-            [req.user.id, description]
+            'INSERT INTO todos (user_id, description, due_date) VALUES($1, $2, $3) RETURNING *',
+            [req.user.id, description, due_date]
         );
 
         res.json(newTodo.rows[0]);
