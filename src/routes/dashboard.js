@@ -28,6 +28,11 @@ router.post('/todos', authorize, async (req,res) => {
             [req.user.id, description, due_date]
         );
 
+        await pool.query(
+            "INSERT INTO history_todos (user_id, todo_id, due_date, status) VALUES ($1, $2, $3, 'pending')",
+            [req.user.id, newTodo.rows[0].todo_id, due_date]
+        );
+
         res.json(newTodo.rows[0]);
 
     } catch (err) {
@@ -57,20 +62,36 @@ router.put('/todos/:id', authorize, async (req,res) => {
 
 //delete a todo
 
-router.delete('/todos/:id', authorize, async (req,res) => {
+router.delete('/todos/:id', authorize, async (req, res) => {
     try {
         const { id } = req.params;
-        const deleteTodo = await pool.query('DELETE FROM todos WHERE todo_id = $1 AND user_id = $2 RETURNING *', [id, req.user.id]);
+        const { due_date } = req.body;
+        const userId = req.user.id;
 
-        if(deleteTodo.rowCount === 0) {
-            return res.json('This todo is not yours');
+
+        // อัปเดต status ของ Todo ใน history_todos เป็น 'deleted'
+        await pool.query(
+            'UPDATE history_todos SET status = $1 WHERE todo_id = $2 AND user_id = $3',
+            ['deleted', id, userId]
+        );
+
+        // ลบ Todo จาก todos
+        const deleteTodo = await pool.query(
+            'DELETE FROM todos WHERE todo_id = $1 AND user_id = $2 RETURNING *',
+            [id, userId]
+        );
+
+        if (deleteTodo.rowCount === 0) {
+            return res.status(404).json('This todo is not yours');
         }
 
-        res.json('Todo was deleted')
+        res.json('Todo was deleted');
     } catch (err) {
         console.error(err.message);
+        res.status(500).json('Server error');
     }
-})
+});
+
 
 // Post done todo
 router.post('/done', authorize, async (req, res) => {
@@ -104,6 +125,11 @@ router.post('/done', authorize, async (req, res) => {
         await pool.query(
             'INSERT INTO done_todos (todo_id, description, due_date, completed_at, user_id) VALUES ($1, $2, $3, NOW(), $4)',
             [todo_id, description, due_date, userId]
+        );
+
+        await pool.query(
+            'UPDATE history_todos SET status = $1 WHERE todo_id = $2 AND user_id = $3',
+            ['done', todo_id, userId]
         );
 
         // ลบ todo ออกจากตาราง todos
@@ -140,25 +166,68 @@ router.get('/done', authorize, async (req, res) => {
 
 // Delete a done todo
 router.delete('/done/:id', authorize, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.user.id;
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const { description, due_date } = req.body;
 
-    const deleteDoneTodo = await pool.query(
-      'DELETE FROM done_todos WHERE todo_id = $1 AND user_id = $2',
-      [id, userId]
-    );
+        // อัปเดต status ของ Todo ใน history_todos เป็น 'deleted'
+        await pool.query(
+            'UPDATE history_todos SET status = $1 WHERE todo_id = $2 AND user_id = $3',
+            ['deleted', id, userId]
+        );
 
-    if (deleteDoneTodo.rowCount === 0) {
-      return res.status(404).json('This done todo is not yours');
+        // ลบ Todo จาก done_todos
+        const deleteDoneTodo = await pool.query(
+            'DELETE FROM done_todos WHERE todo_id = $1 AND user_id = $2',
+            [id, userId]
+        );
+
+        if (deleteDoneTodo.rowCount === 0) {
+            return res.status(404).json('This done todo is not yours');
+        }
+
+        res.json('Done todo deleted');
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json('Server error');
     }
+});
 
-    res.json('Done todo deleted');
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json('Server error');
-  }
+router.get("/summary", authorize, async (req, res) => {
+    try {
+        const user_id = req.user.id;
+
+        // todos
+        const totalTodos = await pool.query(
+            "SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND status NOT IN ('deleted')",
+            [user_id]
+        );
+
+        // todos done
+        const doneCount = await pool.query(
+            "SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND status = 'done'",
+            [user_id]
+        );
+
+        // todos overdue
+        const overdueCount = await pool.query(
+            "SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND due_date < NOW() AND status NOT IN ('done', 'deleted')",
+            [user_id]
+        );
+
+        res.json({
+            totalTodos: Number(totalTodos.rows[0].count),
+            doneCount: Number(doneCount.rows[0].count),
+            overdueCount: Number(overdueCount.rows[0].count),
+        });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json("Server Error");
+    }
 });
 
 module.exports = router;
+
 
