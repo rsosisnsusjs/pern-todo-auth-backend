@@ -42,23 +42,33 @@ router.post('/todos', authorize, async (req,res) => {
 
 //update a todo
 
-router.put('/todos/:id', authorize, async (req,res) => {
+router.put('/todos/:id', authorize, async (req, res) => {
     try {
         const { id } = req.params;
-        const { description } = req.body;
-        const updateTodo = await pool.query('UPDATE todos SET description = $1 WHERE todo_id = $2 AND user_id = $3',
-            [description, id, req.user.id]
-        )
+        const { description, due_date } = req.body;
 
-        if(updateTodo.rowCount === 0) {
+        // อัปเดต Todo ใน history_todos
+        await pool.query(
+            'UPDATE history_todos SET due_date = $1 WHERE todo_id = $2 AND user_id = $3',
+            [due_date, id, req.user.id]
+        );
+
+        const updateTodo = await pool.query(
+            'UPDATE todos SET description = $1, due_date = $2 WHERE todo_id = $3 AND user_id = $4',
+            [description, due_date ? new Date(due_date) : null, id, req.user.id]
+        );
+
+        if (updateTodo.rowCount === 0) {
             return res.json('This todo is not yours');
         }
 
         res.json('Todo was updated');
     } catch (err) {
         console.error(err.message);
+        res.status(500).send('Server error');
     }
-})
+});
+
 
 //delete a todo
 
@@ -171,13 +181,13 @@ router.delete('/done/:id', authorize, async (req, res) => {
         const userId = req.user.id;
         const { description, due_date } = req.body;
 
-        // อัปเดต status ของ Todo ใน history_todos เป็น 'deleted'
+        /*
         await pool.query(
             'UPDATE history_todos SET status = $1 WHERE todo_id = $2 AND user_id = $3',
             ['deleted', id, userId]
         );
+        */
 
-        // ลบ Todo จาก done_todos
         const deleteDoneTodo = await pool.query(
             'DELETE FROM done_todos WHERE todo_id = $1 AND user_id = $2',
             [id, userId]
@@ -197,22 +207,38 @@ router.delete('/done/:id', authorize, async (req, res) => {
 router.get("/summary", authorize, async (req, res) => {
     try {
         const user_id = req.user.id;
+        const { range } = req.query; // รับค่าช่วงเวลาจาก query params
 
-        // todos
+        let dateCondition = "";
+        switch (range) {
+            case "daily":
+                dateCondition = "AND due_date >= NOW() - INTERVAL '1 day'";
+                break;
+            case "monthly":
+                dateCondition = "AND due_date >= NOW() - INTERVAL '1 month'";
+                break;
+            case "six_months":
+                dateCondition = "AND due_date >= NOW() - INTERVAL '6 months'";
+                break;
+            case "yearly":
+                dateCondition = "AND due_date >= NOW() - INTERVAL '1 year'";
+                break;
+            default:
+                dateCondition = ""; // ถ้าไม่มีค่าให้ดึงทั้งหมด
+        }
+
         const totalTodos = await pool.query(
-            "SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND status NOT IN ('deleted')",
+            `SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND status NOT IN ('deleted') ${dateCondition}`,
             [user_id]
         );
 
-        // todos done
         const doneCount = await pool.query(
-            "SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND status = 'done'",
+            `SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND status = 'done' ${dateCondition}`,
             [user_id]
         );
 
-        // todos overdue
         const overdueCount = await pool.query(
-            "SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND due_date < NOW() AND status NOT IN ('done', 'deleted')",
+            `SELECT COUNT(*) FROM history_todos WHERE user_id = $1 AND due_date < NOW() AND status NOT IN ('deleted') ${dateCondition}`,
             [user_id]
         );
 
@@ -227,6 +253,7 @@ router.get("/summary", authorize, async (req, res) => {
         res.status(500).json("Server Error");
     }
 });
+
 
 module.exports = router;
 

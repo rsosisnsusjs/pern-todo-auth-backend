@@ -15,7 +15,8 @@
     "express": "^4.21.2",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.10.0",
-    "pg": "^8.13.3"
+    "pg": "^8.13.3",
+    "mocha": "11.1.0"
   },
   "devDependencies": {
     "dotenv": "^16.4.7",
