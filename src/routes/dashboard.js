@@ -6,6 +6,7 @@ const pool = require('../db');
 
 router.get('/', authorize, async (req,res) => {
     try {
+        const { id } = req.params;
         const user = await pool.query(
             'SELECT u.user_name, t.todo_id, t.description, t.due_date FROM users AS u LEFT JOIN todos AS t ON u.user_id = t.user_id WHERE u.user_id = $1',
             [req.user.id]
@@ -22,7 +23,8 @@ router.get('/', authorize, async (req,res) => {
 
 router.post('/todos', authorize, async (req,res) => {
     try {
-        const { description, due_date } = req.body;
+        const { description, due_date, detail_text } = req.body;
+        
         const newTodo = await pool.query(
             'INSERT INTO todos (user_id, description, due_date) VALUES($1, $2, $3) RETURNING *',
             [req.user.id, description, due_date]
@@ -33,21 +35,28 @@ router.post('/todos', authorize, async (req,res) => {
             [req.user.id, newTodo.rows[0].todo_id, due_date]
         );
 
-        res.json(newTodo.rows[0]);
+        const newDetail = await pool.query(
+            'INSERT INTO todo_details (todo_id, detail_text) VALUES ($1, $2) RETURNING *',
+            [newTodo.rows[0].todo_id, detail_text]
+        );
 
+        res.status(201).json({
+            todo: newTodo.rows[0],
+            detail: newDetail.rows[0]
+        });
     } catch (err) {
         console.error(err.message);
+        res.status(500).json('Server error');
     }
-})
+});
 
-//update a todo
 
 router.put('/todos/:id', authorize, async (req, res) => {
     try {
         const { id } = req.params;
-        const { description, due_date } = req.body;
+        const { description, due_date, detail_text } = req.body; 
 
-        // อัปเดต Todo ใน history_todos
+        // Update Todo in history_todos
         await pool.query(
             'UPDATE history_todos SET due_date = $1 WHERE todo_id = $2 AND user_id = $3',
             [due_date, id, req.user.id]
@@ -62,12 +71,23 @@ router.put('/todos/:id', authorize, async (req, res) => {
             return res.json('This todo is not yours');
         }
 
-        res.json('Todo was updated');
+        const updated = await pool.query(
+            'UPDATE todo_details SET detail_text = $1 WHERE todo_id = $2 RETURNING *',
+            [detail_text, id] 
+        );
+
+        if (updated.rowCount === 0) {
+            return res.status(404).json({ message: 'Detail not found' });
+        }
+
+        return res.json({ message: 'Todo was updated', detail: updated.rows[0] });
+
     } catch (err) {
         console.error(err.message);
         res.status(500).send('Server error');
     }
 });
+
 
 
 //delete a todo
@@ -174,6 +194,8 @@ router.get('/done', authorize, async (req, res) => {
   }
 });
 
+
+
 // Delete a done todo
 router.delete('/done/:id', authorize, async (req, res) => {
     try {
@@ -253,6 +275,36 @@ router.get("/summary", authorize, async (req, res) => {
         res.status(500).json("Server Error");
     }
 });
+
+// get todo detail
+router.get('/todos/:id/details', authorize, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const todo = await pool.query(
+            `SELECT 
+                t.todo_id,
+                t.description,
+                t.due_date,
+                d.detail_text,
+                d.created_at
+            FROM 
+                todos AS t
+            LEFT JOIN 
+                todo_details AS d 
+            ON 
+                t.todo_id = d.todo_id
+            WHERE 
+                t.todo_id = $1`,
+            [id]
+        );
+
+        res.json(todo.rows[0]);  // ส่งเป็น object เดียวเลย!
+    } catch (err) {
+        console.error(err.message);
+    }
+});
+
+
 
 
 module.exports = router;

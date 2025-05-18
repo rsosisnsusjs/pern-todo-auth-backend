@@ -11,5 +11,6 @@ app.use(express.json());
 // Routes
 app.use("/authentication", require("./src/routes/jwtAuth"));
 app.use("/dashboard", require("./src/routes/dashboard"));
+//app.use("/todos", require("./src/routes/todoDetails"));
 
 module.exports = app; // ส่งออก app เพื่อใช้ใน Jest

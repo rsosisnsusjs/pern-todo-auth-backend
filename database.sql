@@ -36,3 +36,9 @@ CREATE TABLE public.done_todos (
 );
 
 
+CREATE TABLE todo_details (
+    detail_id SERIAL PRIMARY KEY,
+    todo_id INTEGER NOT NULL REFERENCES todos(todo_id) ON DELETE CASCADE,
+    detail_text TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT now()
+);
